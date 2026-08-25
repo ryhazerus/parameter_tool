@@ -1,0 +1,11 @@
+# Keeps the build context small and stops local build output leaking into the image.
+# Podman reads .containerignore first and falls back to this file, so one file covers both.
+.git
+.github
+.cache
+build
+build-*
+dist
+dist-*
+.paramsnap
+*.tar.gz

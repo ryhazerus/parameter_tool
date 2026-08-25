@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (without the leading v), e.g. 1.2.3"
+        required: true
+        type: string
+      publish:
+        description: "Publish a GitHub release (off = build and upload the artifact only)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write        # needed to create the release and upload assets
+
+jobs:
+  rhel8:
+    name: Build for RHEL 8 (x86_64)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"        # refs/tags/v1.2.3 -> 1.2.3
+          else
+            VERSION="${{ inputs.version }}"
+          fi
+          if [ -z "$VERSION" ]; then
+            echo "could not determine a version" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building version $VERSION"
+
+      # Built inside UBI 8 so the binary links against RHEL 8's glibc 2.28. The script installs a
+      # GCC Toolset for C++20, links libstdc++ statically, runs the full test suite, and refuses to
+      # package anything that would not load on a stock RHEL 8 host.
+      - name: Build and test in UBI 8
+        run: |
+          docker run --rm -v "$PWD:/src" \
+            -e PARAMTOOL_VERSION="${{ steps.version.outputs.version }}" \
+            registry.access.redhat.com/ubi8/ubi:8.10 \
+            /src/packaging/build-rhel8.sh
+
+      - name: Show what was produced
+        run: |
+          ls -l dist/
+          cat dist/*.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: parametertool-rhel8-x86_64
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs: rhel8
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || inputs.publish
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: parametertool-rhel8-x86_64
+          path: dist
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.rhel8.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          SHA_LINE=$(cat dist/*.sha256)
+
+          cat > notes.md <<EOF
+          ## parametertool ${VERSION}
+
+          Snapshot and restore \`parameter_*.xml\` configuration trees.
+
+          ### RHEL 8 (x86_64)
+
+          Built on Red Hat Enterprise Linux 8.10 against glibc 2.28, with the C++ runtime linked
+          statically — no GCC Toolset needed on the target host. The full test suite runs inside
+          that same RHEL 8 image before the artifact is packaged.
+
+          \`\`\`sh
+          tar xzf parametertool-${VERSION}-linux-x86_64-rhel8.tar.gz
+          sudo install -m 0755 parametertool-${VERSION}-linux-x86_64-rhel8/bin/parametertool /usr/local/bin/
+          parametertool --help
+          \`\`\`
+
+          \`\`\`
+          ${SHA_LINE}
+          \`\`\`
+          EOF
+
+          # Re-running a release should refresh the assets rather than fail.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG exists; updating its assets"
+            gh release upload "$TAG" dist/* --clobber
+            gh release edit "$TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" dist/* \
+              --title "parametertool ${VERSION}" \
+              --notes-file notes.md
+          fi

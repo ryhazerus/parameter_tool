@@ -22,7 +22,23 @@ saved current state as snapshot 4 (undo with `parametertool restore --version 4`
 restored 2 files, deleted 1
 ```
 
-## Building
+## Installing
+
+### RHEL 8 (x86_64)
+
+Download the tarball from the [latest release](../../releases/latest):
+
+```sh
+tar xzf parametertool-<version>-linux-x86_64-rhel8.tar.gz
+sudo install -m 0755 parametertool-<version>-linux-x86_64-rhel8/bin/parametertool /usr/local/bin/
+parametertool --help
+```
+
+The release binary is built inside a RHEL 8.10 image against glibc 2.28 and links the C++ runtime
+statically, so it runs on a stock RHEL 8 host with no GCC Toolset installed. Verify the download
+against the published `.sha256` file if you like.
+
+## Building from source
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -33,6 +49,19 @@ sudo cmake --install build                     # optional; installs to /usr/loca
 
 Requires a C++20 compiler and a POSIX system (Linux or macOS). No third-party libraries: SHA-256,
 JSON, glob matching, and the thread pool are all implemented against the standard library.
+
+Tested against Clang 21 (macOS), GCC 13 (Ubuntu), and GCC 14 (RHEL 8) — warning-free under
+`-Wall -Wextra -Wpedantic -Wshadow -Wconversion`, and clean under ASan/UBSan/LeakSanitizer.
+
+RHEL 8's system compiler is GCC 8.5 and cannot build C++20. Install a GCC Toolset first:
+
+```sh
+sudo dnf install -y gcc-toolset-14-gcc-c++ cmake make
+source /opt/rh/gcc-toolset-14/enable
+```
+
+`--version` reports the CMake project version by default; pass `-DPARAMTOOL_VERSION=1.2.3` to
+override it.
 
 ## Commands
 
@@ -154,3 +183,90 @@ Run it standalone against any build with:
 ```sh
 PARAMTOOL=./build/parametertool sh tests/e2e.sh
 ```
+
+## Continuous integration and releases
+
+`.github/workflows/ci.yml` runs on every push and pull request:
+
+- build and test on Linux (GCC Release, GCC Debug, Clang Release) and macOS (Clang Release);
+- the full RHEL 8 release build, so a packaging or toolchain break surfaces on a normal push rather
+  than when someone cuts a tag;
+- an ASan/UBSan/LeakSanitizer build, which runs the end-to-end suite and so covers the threaded
+  snapshot path, not just the unit-tested pure code.
+
+`.github/workflows/release.yml` runs on a `v*` tag and publishes a GitHub release with the RHEL 8
+x86_64 tarball and its checksum attached. Cut one with:
+
+```sh
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+The tag drives the version baked into the binary (`v1.0.0` → `parametertool 1.0.0`). Re-running the
+workflow on an existing tag refreshes the assets instead of failing. It can also be run manually
+from the Actions tab, where `publish: false` builds and uploads the artifact without creating a
+release — useful for testing the pipeline.
+
+### Building the RHEL 8 binary locally with Podman
+
+You don't need a RHEL 8 machine, or even a C++20 compiler, to produce a RHEL 8 binary. The
+`Containerfile` builds one and writes it straight into your working directory:
+
+```sh
+podman build -o type=local,dest=./dist .
+```
+
+That leaves you with:
+
+```
+dist/bin/parametertool                                  ready to scp to a RHEL 8 host
+dist/parametertool-<version>-linux-x86_64-rhel8.tar.gz  the same thing, packaged
+dist/…​.tar.gz.sha256
+```
+
+There is no `podman run` step and no bind mount, so nothing has to negotiate SELinux labels or
+end up owned by root. Docker works with the identical command.
+
+Or use the wrapper, which picks an engine, and falls back to `podman create` + `podman cp` on
+podman older than 4.0 (RHEL 8.4 and earlier), where `--output` does not exist:
+
+```sh
+./packaging/podman-build.sh              # writes ./dist
+./packaging/podman-build.sh /tmp/out     # or somewhere else
+```
+
+Useful knobs, on either the wrapper (as environment variables) or `podman build` (as
+`--build-arg`):
+
+| | |
+| --- | --- |
+| `PARAMTOOL_VERSION=1.2.3` | version reported by `--version` |
+| `GCC_TOOLSET=12` | build with a different GCC Toolset |
+| `UBI_TAG=8.6` | pin an older RHEL 8 minor version |
+| `PLATFORM=linux/amd64` | see below |
+
+**On an Apple Silicon Mac or another ARM host**, the default build produces an *aarch64* binary,
+which will not run on an ordinary x86_64 RHEL 8 server. Build for the right architecture with:
+
+```sh
+PLATFORM=linux/amd64 ./packaging/podman-build.sh
+# or: podman build --platform linux/amd64 -o type=local,dest=./dist .
+```
+
+This runs the compiler under emulation, so expect it to take a few minutes rather than seconds.
+The wrapper inspects the finished binary and warns you if it isn't x86_64.
+
+### The build script
+
+Both the Containerfile and CI call `packaging/build-rhel8.sh`, so there is one source of truth for
+how a release is produced. It installs a GCC Toolset (RHEL 8's own GCC 8.5 cannot compile C++20),
+builds, runs the full test suite, strips the binary, and then refuses to package it if it still
+links `libstdc++` dynamically or needs a glibc symbol newer than RHEL 8's 2.28. You can run it
+directly against any RHEL 8 image:
+
+```sh
+podman run --rm -v "$PWD:/src:Z" -e PARAMTOOL_VERSION=1.0.0 \
+    registry.access.redhat.com/ubi8/ubi:8.10 /src/packaging/build-rhel8.sh
+```
+
+The `:Z` is what relabels the bind mount for SELinux; without it, a RHEL host gives the container
+permission denied on your source tree. The Containerfile route avoids the issue entirely.

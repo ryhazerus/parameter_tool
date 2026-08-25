@@ -31,6 +31,11 @@ add_library(paramtool_core STATIC
 )
 target_include_directories(paramtool_core PUBLIC src)
 
+# The version reported by `parametertool --version`. Release builds override this with the git tag
+# so a tagged binary identifies itself correctly; a plain local build reports the project version.
+set(PARAMTOOL_VERSION "${PROJECT_VERSION}" CACHE STRING "Version string reported by --version")
+target_compile_definitions(paramtool_core PUBLIC PARAMTOOL_VERSION="${PARAMTOOL_VERSION}")
+
 find_package(Threads REQUIRED)
 target_link_libraries(paramtool_core PUBLIC Threads::Threads)
 

@@ -39,10 +39,10 @@ void SerializeInto(const Value& v, std::string& out, int indent) {
     const std::string pad_inner(static_cast<std::size_t>(indent + 1) * 2, ' ');
 
     switch (v.type()) {
-        case Type::Null: out += "null"; break;
-        case Type::Bool: out += *v.AsBool() ? "true" : "false"; break;
-        case Type::Int:  out += std::to_string(*v.AsInt()); break;
-        case Type::Double: {
+        case Type::kNull: out += "null"; break;
+        case Type::kBool: out += *v.AsBool() ? "true" : "false"; break;
+        case Type::kInt:  out += std::to_string(*v.AsInt()); break;
+        case Type::kDouble: {
             const double d = *v.AsDouble();
             if (!std::isfinite(d)) {
                 out += "null";  // JSON has no inf/nan
@@ -53,12 +53,12 @@ void SerializeInto(const Value& v, std::string& out, int indent) {
             }
             break;
         }
-        case Type::String:
+        case Type::kString:
             out += '"';
             AppendEscaped(out, *v.AsString());
             out += '"';
             break;
-        case Type::Array: {
+        case Type::kArray: {
             const Array& a = *v.AsArray();
             if (a.empty()) { out += "[]"; break; }
             out += "[\n";
@@ -72,7 +72,7 @@ void SerializeInto(const Value& v, std::string& out, int indent) {
             out += ']';
             break;
         }
-        case Type::Object: {
+        case Type::kObject: {
             const Object& o = *v.AsObject();
             if (o.empty()) { out += "{}"; break; }
             out += "{\n";
@@ -327,24 +327,24 @@ private:
 }  // namespace
 
 std::optional<bool> Value::AsBool() const {
-    if (type_ != Type::Bool) return std::nullopt;
+    if (type_ != Type::kBool) return std::nullopt;
     return bool_;
 }
 std::optional<std::int64_t> Value::AsInt() const {
-    if (type_ != Type::Int) return std::nullopt;
+    if (type_ != Type::kInt) return std::nullopt;
     return int_;
 }
 std::optional<double> Value::AsDouble() const {
-    if (type_ == Type::Double) return double_;
-    if (type_ == Type::Int) return static_cast<double>(int_);
+    if (type_ == Type::kDouble) return double_;
+    if (type_ == Type::kInt) return static_cast<double>(int_);
     return std::nullopt;
 }
-const std::string* Value::AsString() const { return type_ == Type::String ? &str_ : nullptr; }
-const Array* Value::AsArray() const { return type_ == Type::Array ? &arr_ : nullptr; }
-const Object* Value::AsObject() const { return type_ == Type::Object ? &obj_ : nullptr; }
+const std::string* Value::AsString() const { return type_ == Type::kString ? &str_ : nullptr; }
+const Array* Value::AsArray() const { return type_ == Type::kArray ? &arr_ : nullptr; }
+const Object* Value::AsObject() const { return type_ == Type::kObject ? &obj_ : nullptr; }
 
 const Value* Value::Find(std::string_view key) const {
-    if (type_ != Type::Object) return nullptr;
+    if (type_ != Type::kObject) return nullptr;
     for (const auto& kv : obj_) {
         if (kv.first == key) return &kv.second;
     }

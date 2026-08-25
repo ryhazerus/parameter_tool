@@ -145,7 +145,9 @@ std::string FormatUtc(std::int64_t epoch) {
 #else
     gmtime_r(&t, &tm);
 #endif
-    char buf[32];
+    // Sized for the theoretical maximum rather than the expected 20 characters: tm_year is an int,
+    // and GCC rightly warns about the truncation an absurd value could cause.
+    char buf[64];
     std::snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02dZ", tm.tm_year + 1900,
                   tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
     return buf;

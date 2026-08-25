@@ -16,23 +16,23 @@ class Value;
 using Object = std::vector<std::pair<std::string, Value>>;  // insertion-ordered
 using Array = std::vector<Value>;
 
-enum class Type { Null, Bool, Int, Double, String, Array, Object };
+enum class Type { kNull, kBool, kInt, kDouble, kString, kArray, kObject };
 
 class Value {
 public:
-    Value() : type_(Type::Null) {}
-    Value(std::nullptr_t) : type_(Type::Null) {}
-    Value(bool b) : type_(Type::Bool), bool_(b) {}
-    Value(std::int64_t i) : type_(Type::Int), int_(i) {}
-    Value(int i) : type_(Type::Int), int_(i) {}
-    Value(double d) : type_(Type::Double), double_(d) {}
-    Value(std::string s) : type_(Type::String), str_(std::move(s)) {}
-    Value(const char* s) : type_(Type::String), str_(s) {}
-    Value(Array a) : type_(Type::Array), arr_(std::move(a)) {}
-    Value(Object o) : type_(Type::Object), obj_(std::move(o)) {}
+    Value() : type_(Type::kNull) {}
+    Value(std::nullptr_t) : type_(Type::kNull) {}
+    Value(bool b) : type_(Type::kBool), bool_(b) {}
+    Value(std::int64_t i) : type_(Type::kInt), int_(i) {}
+    Value(int i) : type_(Type::kInt), int_(i) {}
+    Value(double d) : type_(Type::kDouble), double_(d) {}
+    Value(std::string s) : type_(Type::kString), str_(std::move(s)) {}
+    Value(const char* s) : type_(Type::kString), str_(s) {}
+    Value(Array a) : type_(Type::kArray), arr_(std::move(a)) {}
+    Value(Object o) : type_(Type::kObject), obj_(std::move(o)) {}
 
     Type type() const { return type_; }
-    bool IsNull() const { return type_ == Type::Null; }
+    bool IsNull() const { return type_ == Type::kNull; }
 
     // Typed accessors. Each returns nullopt/nullptr when the node is a different type, so callers
     // reading a hand-edited manifest get a clean error instead of garbage.

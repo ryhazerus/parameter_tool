@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["v*"]        # tags are handled by release.yml
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-gcc-release
+            os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+            build_type: Release
+          - name: linux-gcc-debug
+            os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+            build_type: Debug
+          - name: linux-clang-release
+            os: ubuntu-latest
+            cc: clang
+            cxx: clang++
+            build_type: Release
+          - name: macos-clang-release
+            os: macos-latest
+            cc: clang
+            cxx: clang++
+            build_type: Release
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Smoke test the CLI
+        run: |
+          ./build/parametertool --version
+          ./build/parametertool --help > /dev/null
+
+  # The release artifact is built on RHEL 8. Running that same build on every push means a
+  # toolchain or packaging break is caught here, not when someone cuts a tag.
+  rhel8:
+    name: rhel8-x86_64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Goes through the Containerfile rather than calling the script directly, so the path
+      # contributors use locally (`podman build -o …`) is the one CI keeps honest. The release
+      # workflow invokes packaging/build-rhel8.sh directly, so both entry points stay covered.
+      - name: Build and test for RHEL 8 via the Containerfile
+        run: |
+          docker build \
+            --build-arg PARAMTOOL_VERSION="0.0.0-ci-${GITHUB_SHA::7}" \
+            -o type=local,dest=./dist \
+            -f Containerfile .
+
+      - name: Check the artifact
+        run: |
+          ls -lR dist/
+          file dist/bin/parametertool | tee /dev/stderr | grep -q x86-64
+
+      - name: Upload the tarball for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: parametertool-rhel8-x86_64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  sanitizers:
+    name: asan-ubsan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure with sanitizers
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake -S . -B build-san \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build
+        run: cmake --build build-san -j
+
+      # The e2e suite drives the real binary, so it exercises the threaded snapshot path under
+      # ASan/UBSan rather than only the pure unit-tested code.
+      - name: Test
+        env:
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build-san --output-on-failure
