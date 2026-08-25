@@ -1,0 +1,68 @@
+#pragma once
+
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+// A deliberately small JSON reader/writer. We own both ends of the format (snapshot manifests),
+// so this covers exactly what JSON requires and nothing more: no comments, no trailing commas.
+namespace pt::json {
+
+class Value;
+using Object = std::vector<std::pair<std::string, Value>>;  // insertion-ordered
+using Array = std::vector<Value>;
+
+enum class Type { Null, Bool, Int, Double, String, Array, Object };
+
+class Value {
+public:
+    Value() : type_(Type::Null) {}
+    Value(std::nullptr_t) : type_(Type::Null) {}
+    Value(bool b) : type_(Type::Bool), bool_(b) {}
+    Value(std::int64_t i) : type_(Type::Int), int_(i) {}
+    Value(int i) : type_(Type::Int), int_(i) {}
+    Value(double d) : type_(Type::Double), double_(d) {}
+    Value(std::string s) : type_(Type::String), str_(std::move(s)) {}
+    Value(const char* s) : type_(Type::String), str_(s) {}
+    Value(Array a) : type_(Type::Array), arr_(std::move(a)) {}
+    Value(Object o) : type_(Type::Object), obj_(std::move(o)) {}
+
+    Type type() const { return type_; }
+    bool IsNull() const { return type_ == Type::Null; }
+
+    // Typed accessors. Each returns nullopt/nullptr when the node is a different type, so callers
+    // reading a hand-edited manifest get a clean error instead of garbage.
+    std::optional<bool> AsBool() const;
+    std::optional<std::int64_t> AsInt() const;
+    std::optional<double> AsDouble() const;
+    const std::string* AsString() const;
+    const Array* AsArray() const;
+    const Object* AsObject() const;
+
+    // Object member lookup; nullptr when absent or when this is not an object.
+    const Value* Find(std::string_view key) const;
+
+private:
+    Type type_;
+    bool bool_ = false;
+    std::int64_t int_ = 0;
+    double double_ = 0.0;
+    std::string str_;
+    Array arr_;
+    Object obj_;
+};
+
+// Serializes with two-space indentation and a trailing newline.
+std::string Serialize(const Value& v);
+
+// Parses a complete document. On failure returns nullopt and sets `error`.
+std::optional<Value> Parse(std::string_view text, std::string* error);
+
+// Escapes a string's contents (without surrounding quotes) per RFC 8259.
+std::string EscapeString(std::string_view s);
+
+}  // namespace pt::json

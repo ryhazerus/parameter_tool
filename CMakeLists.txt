@@ -18,6 +18,7 @@ add_library(paramtool_core STATIC
   src/store.cpp
   src/manifest.cpp
   src/cli.cpp
+  src/commands/cmd_common.cpp
   src/commands/cmd_snap.cpp
   src/commands/cmd_restore.cpp
   src/commands/cmd_list.cpp
