@@ -6,7 +6,11 @@
 
 namespace pt {
 
-inline constexpr const char* kToolVersion = "1.0.0";
+// Set by CMake from the project version, or from the git tag for a release build.
+#ifndef PARAMTOOL_VERSION
+#define PARAMTOOL_VERSION "0.0.0-dev"
+#endif
+inline constexpr const char* kToolVersion = PARAMTOOL_VERSION;
 
 struct Options {
     std::string command;
