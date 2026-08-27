@@ -14,6 +14,7 @@ int Dispatch(const pt::Options& opt) {
     if (opt.command == "list")    return pt::CmdList(opt);
     if (opt.command == "show")    return pt::CmdShow(opt);
     if (opt.command == "diff")    return pt::CmdDiff(opt);
+    if (opt.command == "extract") return pt::CmdExtract(opt);
     if (opt.command == "delete")  return pt::CmdDelete(opt);
     if (opt.command == "cleanup") return pt::CmdCleanup(opt);
     if (opt.command == "verify")  return pt::CmdVerify(opt);

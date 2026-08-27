@@ -28,6 +28,19 @@ int ResolveSnapshotRef(const Store& store, const std::string& ref);
 // The glob a command should use, honoring --pattern and --all.
 std::string EffectivePattern(const Options& opt);
 
+// One difference between two path-sorted entry lists.
+struct FileChange {
+    char kind = 'M';                 // 'M' modified, 'A' added, 'R' removed
+    std::string path;
+    const FileEntry* from = nullptr;  // the "before" side; null when kind == 'A'
+    const FileEntry* to = nullptr;    // the "after" side; null when kind == 'R'
+};
+
+// Ordered merge of two lists that are already sorted by path. The returned pointers alias `from`
+// and `to`, which must outlive the result.
+std::vector<FileChange> CompareEntries(const std::vector<FileEntry>& from,
+                                       const std::vector<FileEntry>& to);
+
 struct SnapshotResult {
     Snapshot snapshot;
     std::size_t new_objects = 0;   // objects actually written; the rest were already stored
@@ -53,6 +66,7 @@ int CmdRestore(const Options& opt);
 int CmdList(const Options& opt);
 int CmdShow(const Options& opt);
 int CmdDiff(const Options& opt);
+int CmdExtract(const Options& opt);
 int CmdDelete(const Options& opt);
 int CmdCleanup(const Options& opt);
 int CmdVerify(const Options& opt);

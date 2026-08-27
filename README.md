@@ -75,6 +75,7 @@ tree you can just run `parametertool list`.
 | `list [<path>]` | List snapshots, oldest first. |
 | `show [<path>] <id>` | Show one snapshot's file list and hashes. |
 | `diff [<path>] <id> [<id2>]` | Compare two snapshots, or a snapshot to the live tree. |
+| `extract [<path>] --version <id>` | Copy out only the files that changed since the first snapshot. |
 | `delete [<path>] <id>` | Delete one snapshot. |
 | `cleanup [<path>]` | Delete all snapshots, or all but `--keep-last N`. |
 | `verify [<path>]` | Re-hash every stored object and check every manifest. |
@@ -91,6 +92,9 @@ A snapshot is referred to by number (`3`, `0003`), by `--name` label, or as `lat
 -w, --workers <n>      Hashing threads (default: min(cores, 8), max 64).
     --version <id>     Snapshot to restore.
     --file <relpath>   Restore just one file out of the snapshot.
+    --out <dir>        extract: where to write (default: ./extract-<id>).
+    --since <id>       extract: baseline to compare against (default: the oldest snapshot).
+    --force            extract: write into an output directory that is not empty.
     --merge            Restore without deleting files the snapshot lacks.
     --keep-last <n>    cleanup: keep the n most recent checkpoints.
     --no-auto-snapshot Skip the safety snapshot taken before a restore.
@@ -137,6 +141,43 @@ Individual file writes are atomic (write to a temporary, then rename), so no rea
 half-written file. A restore as a whole is *not* transactional — if it is killed halfway you get a
 partially restored tree. The safety snapshot is the recovery path for that case.
 
+## Extracting a delta
+
+`restore` puts a snapshot back into the configuration tree. `extract` instead copies the changed
+files *out*, into a directory of your choosing, and never touches the tree or the store.
+
+The workflow it exists for: snapshot the machine before anyone touches it, test and tune, snapshot
+again once the parameters are right — then take just those files to the next machine, attach them
+to a ticket, or hand them to someone for review.
+
+```
+$ parametertool extract ./my_dir --version 5
+snapshot 1 "baseline" -> snapshot 5 "pid tuned"
+  M  parameter_motor.xml
+  R  parameter_old.xml   (removed; nothing extracted)
+  A  subsys/parameter_encoder.xml
+extracted 2 files into ./extract-5 (1 removed file not extracted)
+```
+
+**The baseline is the oldest snapshot in the store** — the starting snapshot taken before testing
+began. The `[auto]` safety snapshots that pile up during a testing session never become the
+baseline, because `restore` cannot run before a real snapshot exists, so the oldest is always one
+somebody took on purpose. Pass `--since <id>` to measure from somewhere else.
+
+**Only added and modified files are written**, with their subdirectory layout, mode, and
+modification time preserved, so the output can be copied straight over another tree. Files
+identical in both snapshots are skipped. A file the baseline had and the target does not is listed
+as `R` and nothing is written for it — the output directory holds only real files, so applying a
+delta never means picking the leftovers out by hand.
+
+**The output directory defaults to `./extract-<id>`.** If it already exists and is not empty the
+command stops, so a stale delta from an earlier run is never silently mixed into a new one; pass
+`--force` to write anyway. Extracting into the configuration directory itself is refused — that is
+what `restore` is for, and it takes a safety snapshot first.
+
+Writes are atomic through a staging directory created inside the output directory, so extracting
+onto a USB stick or a network share works even though it is a different filesystem from the store.
+
 ## The store
 
 Snapshots live in `<path>/.paramsnap`, so history travels with a copy, move, or backup of the
@@ -173,10 +214,11 @@ ctest --test-dir build --output-on-failure
 
 Unit tests cover SHA-256 (against the published NIST vectors, including the one-million-character
 streaming case), the JSON reader/writer (escaping round-trips and malformed-input rejection), and
-the glob matcher. `tests/e2e.sh` drives the real binary through fifteen scenarios: byte-exact round
+the glob matcher. `tests/e2e.sh` drives the real binary through eighteen scenarios: byte-exact round
 trips, worker-count determinism, deduplication, pattern-scoped deletion, undoing a restore via its
-safety snapshot, single-file isolation, `gc` correctness, corruption detection, lock contention, and
-that every `--dry-run` leaves both tree and store untouched.
+safety snapshot, single-file isolation, `gc` correctness, corruption detection, lock contention,
+extracting a delta and the guards on where it may be written, and that every `--dry-run` leaves both
+tree and store untouched.
 
 Run it standalone against any build with:
 

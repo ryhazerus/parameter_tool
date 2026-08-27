@@ -25,6 +25,10 @@ struct Options {
     std::string id_b;                   // second ref, for `diff a b`
     std::string file;                   // --file <relpath>, restore one file out of a snapshot
 
+    std::string out;                    // --out <dir>, where `extract` writes
+    std::string since;                  // --since <ref>, baseline for `extract`
+    bool force = false;                 // --force: write into a non-empty --out
+
     bool merge = false;                 // --merge: leave unknown files alone
     bool dry_run = false;
     bool assume_yes = false;            // --yes

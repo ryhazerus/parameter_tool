@@ -250,7 +250,90 @@ make_tree "$D" 3
 LEFT=$(find "$D/.paramsnap/snapshots" -name '*.json' | wc -l | tr -d ' ')
 if [ "$LEFT" -eq 1 ]; then ok; else bad "cleanup deleted snapshots without confirmation"; fi
 
-# --- 15. usage errors --------------------------------------------------------
+# --- 16. extract writes only the changed files -------------------------------
+start "extract copies out exactly what changed since the first snapshot"
+D=$WORK/extract
+make_tree "$D" 4
+"$PT" snap "$D" --name baseline >/dev/null
+echo '<tuned/>' > "$D/parameter_p2.xml"
+echo '<brand-new/>' > "$D/subsys/parameter_new.xml"
+rm "$D/parameter_p4.xml"
+"$PT" snap "$D" --name tuned >/dev/null
+
+OUT=$WORK/extract-out
+"$PT" extract "$D" --version 2 --out "$OUT" >/dev/null || bad "extract failed"
+# Exactly the modified and added files, with the subdirectory layout preserved.
+GOT=$(cd "$OUT" && find . -type f | sed 's|^\./||' | sort | tr '\n' ' ')
+[ "$GOT" = "parameter_p2.xml subsys/parameter_new.xml " ] \
+    || bad "extracted the wrong set: $GOT"
+cmp -s "$OUT/parameter_p2.xml" "$D/parameter_p2.xml" \
+    || bad "extracted parameter_p2.xml does not match the snapshot"
+cmp -s "$OUT/subsys/parameter_new.xml" "$D/subsys/parameter_new.xml" \
+    || bad "extracted parameter_new.xml does not match the snapshot"
+[ ! -e "$OUT/parameter_p1.xml" ] || bad "an unchanged file was extracted"
+[ ! -e "$OUT/parameter_p4.xml" ] || bad "a removed file was extracted"
+# No staging directory left behind, and the config tree is untouched.
+[ -z "$(find "$OUT" -name '.paramtool-extract-tmp')" ] || bad "staging directory left behind"
+[ -f "$D/parameter_p2.xml" ] && [ ! -e "$D/parameter_p4.xml" ] \
+    || bad "extract modified the configuration tree"
+ok
+
+# --- 17. extract baselines and default output --------------------------------
+start "extract uses the oldest snapshot as its baseline unless --since says otherwise"
+D=$WORK/extract-since
+make_tree "$D" 3
+"$PT" snap "$D" >/dev/null                       # 1: baseline
+echo '<v2/>' > "$D/parameter_p1.xml"
+"$PT" snap "$D" >/dev/null                       # 2
+echo '<v3/>' > "$D/parameter_p2.xml"
+"$PT" snap "$D" >/dev/null                       # 3
+
+"$PT" extract "$D" --out "$WORK/es-all" --version 3 >/dev/null
+GOT=$(cd "$WORK/es-all" && find . -type f | sed 's|^\./||' | sort | tr '\n' ' ')
+[ "$GOT" = "parameter_p1.xml parameter_p2.xml " ] || bad "default baseline gave: $GOT"
+
+"$PT" extract "$D" --version 3 --since 2 --out "$WORK/es-2" >/dev/null
+GOT=$(cd "$WORK/es-2" && find . -type f | sed 's|^\./||' | sort | tr '\n' ' ')
+[ "$GOT" = "parameter_p2.xml " ] || bad "--since 2 gave: $GOT"
+
+# A restore's [auto] snapshot must never become the baseline.
+"$PT" restore "$D" --version 1 --yes >/dev/null 2>&1
+"$PT" extract "$D" --version 3 --out "$WORK/es-auto" >/dev/null
+GOT=$(cd "$WORK/es-auto" && find . -type f | sed 's|^\./||' | sort | tr '\n' ' ')
+[ "$GOT" = "parameter_p1.xml parameter_p2.xml " ] || bad "an [auto] snapshot became the baseline: $GOT"
+
+# With no --out, the delta lands in ./extract-<id> under the current directory.
+mkdir -p "$WORK/cwd" && (cd "$WORK/cwd" && "$PT" extract "$D" --version 3 >/dev/null)
+[ -f "$WORK/cwd/extract-3/parameter_p1.xml" ] || bad "default --out did not create ./extract-3"
+ok
+
+# --- 18. extract refuses to clobber or to write into the tree ----------------
+start "extract guards its output directory"
+D=$WORK/extract-guard
+make_tree "$D" 3
+"$PT" snap "$D" >/dev/null
+echo '<changed/>' > "$D/parameter_p1.xml"
+"$PT" snap "$D" >/dev/null
+
+OUT=$WORK/eg-out
+"$PT" extract "$D" --version 2 --out "$OUT" >/dev/null
+expect_status 1 "$PT" extract "$D" --version 2 --out "$OUT"          # non-empty
+expect_status 0 "$PT" extract "$D" --version 2 --out "$OUT" --force
+expect_status 1 "$PT" extract "$D" --version 2 --out "$D"            # the config dir itself
+expect_status 1 "$PT" extract "$D" --version 2 --out "$D/.paramsnap/x"
+
+# --dry-run writes nothing at all.
+"$PT" extract "$D" --version 2 --out "$WORK/eg-dry" --dry-run >/dev/null
+[ ! -e "$WORK/eg-dry" ] || bad "--dry-run created the output directory"
+
+# The oldest snapshot has no baseline to compare against: clean exit, nothing written.
+"$PT" extract "$D" --version 1 --out "$WORK/eg-base" >/dev/null
+RC=$?
+[ "$RC" -eq 0 ] || bad "extracting the baseline exited $RC"
+[ ! -e "$WORK/eg-base" ] || bad "extracting the baseline created an output directory"
+ok
+
+# --- 19. usage errors --------------------------------------------------------
 start "bad command lines exit 2 with a usage error"
 D=$WORK/usage
 make_tree "$D" 2
@@ -261,6 +344,9 @@ expect_status 2 "$PT" snap "$D" --name version 1     # unquoted name
 expect_status 2 "$PT" restore "$D"                   # missing --version
 expect_status 2 "$PT" show "$D"                      # missing id
 expect_status 2 "$PT" list "$D" --file x             # option on the wrong command
+expect_status 2 "$PT" extract "$D"                   # missing --version
+expect_status 2 "$PT" diff "$D" 1 --out x            # --out on the wrong command
+expect_status 2 "$PT" restore "$D" --version 1 --force
 expect_status 0 "$PT" --help
 expect_status 0 "$PT" --version
 ok

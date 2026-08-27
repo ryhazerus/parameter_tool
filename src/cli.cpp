@@ -26,8 +26,9 @@ struct CommandSpec {
 
 const CommandSpec kCommands[] = {
     {"snap", 0, false},   {"restore", 1, true},  {"list", 0, false},
-    {"show", 1, true},    {"diff", 2, true},     {"delete", 1, true},
-    {"cleanup", 0, false},{"verify", 0, false},  {"gc", 0, false},
+    {"show", 1, true},    {"diff", 2, true},     {"extract", 1, true},
+    {"delete", 1, true},  {"cleanup", 0, false}, {"verify", 0, false},
+    {"gc", 0, false},
 };
 
 const CommandSpec* FindCommand(std::string_view name) {
@@ -75,6 +76,9 @@ void PrintUsage() {
         "  list [<path>]               List snapshots, newest last.\n"
         "  show [<path>] <id>          Show one snapshot's contents.\n"
         "  diff [<path>] <id> [<id2>]  Compare two snapshots, or a snapshot to the live tree.\n"
+        "  extract [<path>] --version <id>\n"
+        "                              Copy out only the files that changed since the first\n"
+        "                              snapshot, leaving the configuration tree untouched.\n"
         "  delete [<path>] <id>        Delete one snapshot.\n"
         "  cleanup [<path>]            Delete all snapshots (or all but --keep-last N).\n"
         "  verify [<path>]             Re-hash stored objects and check every manifest.\n"
@@ -87,6 +91,10 @@ void PrintUsage() {
         "  -w, --workers <n>           Hashing threads (default: %u here, max 64).\n"
         "      --version <id>          Snapshot to restore: a number, a name, or \"latest\".\n"
         "      --file <relpath>        Restore just this one file out of the snapshot.\n"
+        "      --out <dir>             extract: where to write (default: ./extract-<id>).\n"
+        "      --since <id>            extract: compare against this snapshot instead of the\n"
+        "                              oldest one.\n"
+        "      --force                 extract: write into an output directory that is not empty.\n"
         "      --merge                 Restore without deleting files the snapshot lacks.\n"
         "      --keep-last <n>         cleanup: keep the n most recent snapshots.\n"
         "      --no-auto-snapshot      Skip the safety snapshot taken before a restore.\n"
@@ -102,6 +110,7 @@ void PrintUsage() {
         "  parametertool diff ./my_dir 3            # snapshot 3 vs the live tree\n"
         "  parametertool restore ./my_dir --version 3\n"
         "  parametertool restore ./my_dir --version 3 --file parameter_motor.xml\n"
+        "  parametertool extract ./my_dir --version 3 --out ./delta\n"
         "  parametertool delete ./my_dir 3\n"
         "  parametertool cleanup ./my_dir --keep-last 5\n"
         "\n"
@@ -169,6 +178,9 @@ bool ParseArgs(int argc, char** argv, Options& out) {
         }
         else if (a == "--version") { out.id = need_value("--version"); }
         else if (a == "--file") { out.file = need_value("--file"); }
+        else if (a == "--out") { out.out = need_value("--out"); }
+        else if (a == "--since") { out.since = need_value("--since"); }
+        else if (a == "--force") { no_value("--force"); out.force = true; }
         else if (a == "--merge") { no_value("--merge"); out.merge = true; }
         else if (a == "--keep-last") {
             out.keep_last = ParseLong(need_value("--keep-last"), "--keep-last");
@@ -222,6 +234,11 @@ bool ParseArgs(int argc, char** argv, Options& out) {
             FailUsage("restore needs a snapshot: parametertool restore [<path>] --version <id>\n"
                       "  run `parametertool list` to see the available ids");
         }
+        if (out.command == "extract") {
+            FailUsage("extract needs a snapshot: parametertool extract [<path>] --version <id>\n"
+                      "  it writes the files that changed between the oldest snapshot and that "
+                      "one\n  run `parametertool list` to see the available ids");
+        }
         FailUsage(out.command + " needs a snapshot id\n  run `parametertool list` to see them");
     }
 
@@ -233,6 +250,15 @@ bool ParseArgs(int argc, char** argv, Options& out) {
     }
     if (out.keep_last >= 0 && out.command != "cleanup") {
         FailUsage("--keep-last only applies to `cleanup`");
+    }
+    if (!out.out.empty() && out.command != "extract") {
+        FailUsage("--out only applies to `extract`");
+    }
+    if (!out.since.empty() && out.command != "extract") {
+        FailUsage("--since only applies to `extract`");
+    }
+    if (out.force && out.command != "extract") {
+        FailUsage("--force only applies to `extract`");
     }
     if (!out.name.empty() && out.command != "snap") {
         FailUsage("--name only applies to `snap`");

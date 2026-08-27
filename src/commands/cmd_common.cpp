@@ -205,6 +205,29 @@ std::vector<FileEntry> ScanLive(const fs::path& root, const std::string& pattern
     return entries;  // ScanTree sorted the paths, so this is sorted too
 }
 
+std::vector<FileChange> CompareEntries(const std::vector<FileEntry>& from,
+                                       const std::vector<FileEntry>& to) {
+    std::vector<FileChange> out;
+    std::size_t i = 0, j = 0;
+
+    while (i < from.size() || j < to.size()) {
+        if (j == to.size() || (i < from.size() && from[i].path < to[j].path)) {
+            out.push_back({'R', from[i].path, &from[i], nullptr});
+            ++i;
+        } else if (i == from.size() || to[j].path < from[i].path) {
+            out.push_back({'A', to[j].path, nullptr, &to[j]});
+            ++j;
+        } else {
+            if (from[i].hash != to[j].hash) {
+                out.push_back({'M', from[i].path, &from[i], &to[j]});
+            }
+            ++i;
+            ++j;
+        }
+    }
+    return out;
+}
+
 std::string FormatSnapshotLine(const Snapshot& s, bool verbose) {
     char buf[256];
     std::string when = s.created_utc;

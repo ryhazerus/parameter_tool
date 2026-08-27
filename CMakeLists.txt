@@ -24,6 +24,7 @@ add_library(paramtool_core STATIC
   src/commands/cmd_list.cpp
   src/commands/cmd_show.cpp
   src/commands/cmd_diff.cpp
+  src/commands/cmd_extract.cpp
   src/commands/cmd_delete.cpp
   src/commands/cmd_cleanup.cpp
   src/commands/cmd_verify.cpp
